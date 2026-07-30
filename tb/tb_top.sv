@@ -123,7 +123,7 @@ const logic [5:0] FUNCTS [] = '{
   );
     instruction_memory[NUM_INSTRUCTIONS] = {6'd0, rs, rt, rd, shamt, funct};
     NUM_INSTRUCTIONS += 1;
-  endtask
+  endtask: write_r_type
 
   // I-type: opcode, rs, rt, imm
   // write_i_type(.opcode(), .rs(), .rt(), .imm());
@@ -134,7 +134,7 @@ const logic [5:0] FUNCTS [] = '{
   );
     instruction_memory[NUM_INSTRUCTIONS] = {opcode, rs, rt, imm};
     NUM_INSTRUCTIONS += 1;
-  endtask
+  endtask: write_i_type
 
   // J-type: opcode, target address
   // write_j_type(.opcode(), .addr());
@@ -144,7 +144,7 @@ const logic [5:0] FUNCTS [] = '{
   );
     instruction_memory[NUM_INSTRUCTIONS] = {opcode, addr};
     NUM_INSTRUCTIONS += 1;
-  endtask
+  endtask: write_j_type
 
   task automatic write_addBranchTest();
     // add r1, r2, r3
@@ -161,21 +161,9 @@ const logic [5:0] FUNCTS [] = '{
     write_r_type(.rs(R5), .rt(R2), .rd(R5), .shamt(5'd0), .funct(ADD_FUNCT));
     // beq r1, r3, 0
     write_i_type(.opcode(BEQ_OP), .rs(R1), .rt(R3), .imm(16'd0));
-  endtask
+  endtask: write_addBranchTest
 
-/* verilator lint_on UNUSEDSIGNAL */
-
-// inputs
-  reg clk, rst;
-
-// instantiate instruction memory
-  logic [WIDTH-1:0] instruction_memory [MAX_INSTRUCTIONS-1:0]; 
-  integer i = 0;
-  integer NUM_INSTRUCTIONS;
-
-initial begin
-  NUM_INSTRUCTIONS = 0;
-    // add instructions below to be executed by the CPU core, include comment for specific instruction
+  task automatic shift_addMultTest();
     write_i_type(.opcode(ADDI_OP), .rs(R0), .rt(R3), .imm(16'h0FFF)); // load first number to multiply
     write_i_type(.opcode(ADDI_OP), .rs(R0), .rt(R2), .imm(16'h0FFF)); // load second number to multiply
 
@@ -189,16 +177,51 @@ initial begin
     write_i_type(.opcode(ADDI_OP), .rs(R5), .rt(R5), .imm((~16'd1 + 1'b1)));
     write_i_type(.opcode(BNE_OP), .rs(R0), .rt(R5), .imm((~16'd7 + 1'b1)));
     write_r_type(.rs(R0), .rt(R7), .rd(R4), .shamt(5'd0), .funct(ADDU_FUNCT));
+    #(10*CLK_PERIOD); // wait until counter value overrwrites current 0 value in register 
+    do begin
+      #(CLK_PERIOD); // check every clock cycle
+    end while (reg_file_debug[5] != 0); // check until no more bits to shift
+    #(2*CLK_PERIOD);
+    $display("Expected R7 = 0x%0h, Got R7 = 0x%0h", 
+      32'h00FFE001, reg_file_debug[7]);
+  endtask: shift_addMultTest
 
-      /*
-      for(i = 7; i < MAX_INSTRUCTIONS; i++) begin
-        instruction_memory[i] = '0; // load the rest of instruction memory with nop's
-      end
-      */
-  end
+  task automatic search_dataMemTest();
+    // searches an area of memory, counts number of times that a word fetched from memory matches R2
+
+    // load R2 with test value (16'd5)
+    write_i_type(.opcode(ADDI_OP), .rs(R0), .rt(R2), .imm(16'd5));
+
+    // store R2 value in different memory locations (3, 7, 15)
+    write_i_type(.opcode(ADDI_OP), .rs(R0), .rt(R2), .imm(16'd4));
+    write_i_type(.opcode(SW_OP), .rs(R0), .rt(R2), .imm(16'd8));
+    write_i_type(.opcode(SW_OP), .rs(R0), .rt(R2), .imm(16'd12));
   
+    // write algorithm to instruction memory
+    write_i_type(.opcode(LW_OP), .rs(R3), .rt(R5), .imm(16'd0));
+    write_i_type(.opcode(BNE_OP), .rs(R2), .rt(R5), .imm(16'd1));
+    write_i_type(.opcode(ADDI_OP), .rs(R1), .rt(R1), .imm(16'd1));
+    write_i_type(.opcode(ADDI_OP), .rs(R3), .rt(R3), .imm(16'd4));
+    write_i_type(.opcode(BNE_OP), .rs(R3), .rt(R4), .imm((~16'd5 + 1'b1)));
+    #(20*CLK_PERIOD); // wait until counter value overrwrites current 0 value in register 
 
+    do begin
+      #(CLK_PERIOD); // check every clock cycle
+    end while (reg_file_debug[3] < 32'd32); // repeat as long as there's still memory addresses to check
+    #(2*CLK_PERIOD);
+    $display("Expected R1 = 0x%0h, Got R1 = 0x%0h", 
+      32'd3, reg_file_debug[1]);
+  endtask: search_dataMemTest
 
+/* verilator lint_on UNUSEDSIGNAL */
+
+// inputs
+  reg clk, rst;
+
+// instantiate instruction memory
+  logic [WIDTH-1:0] instruction_memory [MAX_INSTRUCTIONS-1:0]; 
+  integer i = 0;
+  integer NUM_INSTRUCTIONS;
 
 
 /* verilator lint_off UNUSEDSIGNAL */
@@ -231,6 +254,8 @@ initial begin
   wire ex_zeroFlag;
   wire ex_overflowFlag;
   wire [WIDTH-1:0] ex_aluResult, ex_rdDataTwo, ex_pcAdd;
+  wire [WIDTH-1:0] ex_branchAddr;
+  wire ex_branchFlag;
 // EX/MEM pipeline registers
   wire [4:0] ex_mem_regDst;
   wire [3:0] ex_mem_memCtrl;
@@ -238,8 +263,6 @@ initial begin
   wire ex_mem_zeroFlag;
   wire [WIDTH-1:0] ex_mem_aluResult, ex_mem_rdDataTwo, ex_mem_pcAdd;
 // MEM outputs
-  wire mem_branchFlag;
-  wire [WIDTH-1:0] mem_branchAddr;
   wire [3:0] mem_wbCtrl;
   wire [4:0] mem_regDst;
   wire [WIDTH-1:0] mem_memReadData, mem_aluResult;
@@ -270,12 +293,11 @@ top #(.WIDTH(WIDTH), .MAX_INSTRUCTIONS(MAX_INSTRUCTIONS)) top_00 (
   .if_id_write(if_id_write), .PCWrite(PCWrite),
   .reg_file_debug(reg_file_debug), .id_ex_shamt_out(id_ex_shamt_out),
   .ex_regDst(ex_regDst), .ex_memCtrl(ex_memCtrl), .ex_wbCtrl(ex_wbCtrl),
-  .ex_zeroFlag(ex_zeroFlag), .ex_overflowFlag(ex_overflowFlag),
-  .ex_aluResult(ex_aluResult), .ex_rdDataTwo(ex_rdDataTwo), .ex_pcAdd(ex_pcAdd),
+  .ex_zeroFlag(ex_zeroFlag), .ex_overflowFlag(ex_overflowFlag), .ex_branchFlag(ex_branchFlag),
+  .ex_aluResult(ex_aluResult), .ex_rdDataTwo(ex_rdDataTwo),
   .ex_mem_regDst(ex_mem_regDst), .ex_mem_memCtrl(ex_mem_memCtrl), .ex_mem_wbCtrl(ex_mem_wbCtrl),
-  .ex_mem_zeroFlag(ex_mem_zeroFlag),
-  .ex_mem_aluResult(ex_mem_aluResult), .ex_mem_rdDataTwo(ex_mem_rdDataTwo), .ex_mem_pcAdd(ex_mem_pcAdd),
-  .mem_branchFlag(mem_branchFlag), .mem_branchAddr(mem_branchAddr), .mem_wbCtrl(mem_wbCtrl), .mem_regDst(mem_regDst),
+  .ex_mem_aluResult(ex_mem_aluResult), .ex_mem_rdDataTwo(ex_mem_rdDataTwo),
+  .ex_branchAddr(ex_branchAddr), .mem_wbCtrl(mem_wbCtrl), .mem_regDst(mem_regDst),
   .mem_memReadData(mem_memReadData), .mem_aluResult(mem_aluResult),
   .mem_wb_wbCtrl(mem_wb_wbCtrl), .mem_wb_regDst(mem_wb_regDst),
   .mem_wb_memReadData(mem_wb_memReadData), .mem_wb_aluResult(mem_wb_aluResult),
@@ -288,19 +310,14 @@ top #(.WIDTH(WIDTH), .MAX_INSTRUCTIONS(MAX_INSTRUCTIONS)) top_00 (
 // stimulus
   initial begin
     clk = 0; rst = 1;
+    NUM_INSTRUCTIONS = 0;
     #(CLK_PERIOD) rst = 0;
-    #(10*CLK_PERIOD); // wait until counter value overrwrites current 0 value in register 
-    do begin
-      #(CLK_PERIOD); // check every clock cycle
-    end while (reg_file_debug[5] != 0); // check until
-    #(2*CLK_PERIOD);
-    $display("Expected R7 = 0x%0h, Got R7 = 0x%0h", 
-      32'h00FFE001, reg_file_debug[7]);
+
+    // call tasks below to be executed by the CPU core, include comment for specific instruction
+    shift_addMultTest();
+
     $finish;
 
-    // observe waveform during this period with sample instruction set
-    // (instantiate inst. mem. through IF stage)
-    #(180*CLK_PERIOD); // to allow pipeline to fully flush out previous instructions (assuming no backwards jumping/branches)
   end
 
 

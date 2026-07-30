@@ -3,15 +3,12 @@
 module mem_stage #(parameter WIDTH) (
     /* verilator lint_off UNUSEDSIGNAL */
     input clk, rst,
-    /* verilator lint_on UNUSEDSIGNAL */
-    input logic zero_flag,
     input reg [3:0] mem_ctrl,
     input reg [3:0] wb_ctrl_in,
-    input reg [WIDTH-1:0] alu_result, rd_data_two_out, pc_slt_add,
+    input reg [WIDTH-1:0] alu_result, rd_data_two_out,
     input reg [4:0] reg_dst_mux,
 
-    output wire branch_flag,
-    output logic [WIDTH-1:0] mem_read_data, branch_addr, alu_result_out,
+    output logic [WIDTH-1:0] mem_read_data, alu_result_out,
     output logic [3:0] wb_ctrl_out,
     output wire [4:0] wr_reg_dest_out
     );
@@ -20,13 +17,10 @@ module mem_stage #(parameter WIDTH) (
 
     assign wb_ctrl_out = wb_ctrl_in;
 
-    // mem_ctrl[2] signifies a branch instruction, mem_ctrl[3] is for a NE, ~mem_ctrl[3] for EQ
-    assign branch_flag = (!mem_ctrl[3] && mem_ctrl[2] && zero_flag) /* for BREQ */
-                            || (mem_ctrl[3] && mem_ctrl[2] && !zero_flag); /* for BRNE */
+    // moved branch resolution back 1 stage into EX
 
     assign wr_reg_dest_out = reg_dst_mux;
 
-    assign branch_addr = pc_slt_add;
     assign alu_result_out = alu_result;
 
 /* "mem_ctrl" is 3 bits:
@@ -35,5 +29,6 @@ module mem_stage #(parameter WIDTH) (
     [2] - Branch
     [3] - bneSel
 */
+    /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule: mem_stage

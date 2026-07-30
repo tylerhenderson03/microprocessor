@@ -14,8 +14,8 @@ module ex_stage #(parameter WIDTH) (
 
     output wire [3:0] mem_ctrl_out,
     output wire [3:0] wb_ctrl_out,
-    output wire [WIDTH-1:0] pc_slt_add, alu_result, rd_data_two_out,
-    output wire zero_flag, overflow_flag,
+    output wire [WIDTH-1:0] branch_addr, alu_result, rd_data_two_out,
+    output wire zero_flag, overflow_flag, branch_flag,
     output reg [4:0] reg_dst_mux
     );
 // arithmetic operations
@@ -45,7 +45,7 @@ module ex_stage #(parameter WIDTH) (
 
 
 // branch address arithmetic
-    assign pc_slt_add = pc_incr_in + {sgn_extend_out[29:0], 2'b00};
+    assign branch_addr = pc_incr_in + {sgn_extend_out[29:0], 2'b00};
 
 // assign register write destination
     assign reg_dst_mux = ex_ctrl[3] ? rd_out : rt_out;
@@ -54,6 +54,10 @@ module ex_stage #(parameter WIDTH) (
     assign rd_data_two_out = rd_data_two_in;
     assign mem_ctrl_out = mem_ctrl_in;
     assign wb_ctrl_out = wb_ctrl_in;
+
+// mem_ctrl[2] signifies a branch instruction, mem_ctrl[3] is for a NE, ~mem_ctrl[3] for EQ
+    assign branch_flag = (!mem_ctrl_in[3] && mem_ctrl_in[2] && zero_flag) /* for BREQ */
+                            || (mem_ctrl_in[3] && mem_ctrl_in[2] && !zero_flag); /* for BRNE */
 
 // instantiate forwarding unit here
     fwd_unit fwd_00 (.id_ex_regRs(rs_out), .id_ex_regRt(rt_out),

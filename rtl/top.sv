@@ -27,16 +27,15 @@ module top #(parameter WIDTH = 32, parameter MAX_INSTRUCTIONS) (
     output wire [3:0] ex_wbCtrl,
     output wire ex_zeroFlag,
     output wire ex_overflowFlag,
-    output wire [WIDTH-1:0] ex_aluResult, ex_rdDataTwo, ex_pcAdd,
+    output wire ex_branchFlag,
+    output wire [WIDTH-1:0] ex_branchAddr,
+    output wire [WIDTH-1:0] ex_aluResult, ex_rdDataTwo,
 // EX/MEM pipeline registers
     output reg [4:0] ex_mem_regDst,
     output reg [3:0] ex_mem_memCtrl,
     output reg [3:0] ex_mem_wbCtrl,
-    output reg ex_mem_zeroFlag,
-    output reg [WIDTH-1:0] ex_mem_aluResult, ex_mem_rdDataTwo, ex_mem_pcAdd,
+    output reg [WIDTH-1:0] ex_mem_aluResult, ex_mem_rdDataTwo,
 // MEM outputs
-    output wire mem_branchFlag,
-    output wire [WIDTH-1:0] mem_branchAddr,
     output wire [3:0] mem_wbCtrl,
     output wire [4:0] mem_regDst,
     output wire [WIDTH-1:0] mem_memReadData, mem_aluResult,
@@ -52,7 +51,7 @@ module top #(parameter WIDTH = 32, parameter MAX_INSTRUCTIONS) (
 
 // IF/ID pipeline registers
     always_ff @(posedge clk or posedge rst) begin
-        if (rst || mem_branchFlag || id_PCJmp) begin
+        if (rst || ex_branchFlag || id_PCJmp) begin
             if_id_pcIncr <= '0;
             if_id_inst   <= '0;  
         end else if(if_id_write) begin // in the event of a stall, preserve previous instruction state in this stage of processor
@@ -66,7 +65,7 @@ module top #(parameter WIDTH = 32, parameter MAX_INSTRUCTIONS) (
 
 // ID/EX pipeline registers
     always_ff @(posedge clk or posedge rst) begin
-        if (rst || mem_branchFlag || id_PCJmp) begin  // ← add flush conditions
+        if (rst || ex_branchFlag || id_PCJmp) begin  // ← add flush conditions
             id_ex_regT      <= '0; id_ex_regD      <= '0; id_ex_regS <= '0;
             id_ex_exCtrl    <= '0; id_ex_memCtrl   <= '0; id_ex_wbCtrl    <= '0;
             id_ex_pcIncr    <= '0; id_ex_sgnExt    <= '0;
@@ -84,15 +83,14 @@ module top #(parameter WIDTH = 32, parameter MAX_INSTRUCTIONS) (
 
 // EX/MEM pipeline registers
     always_ff @(posedge clk or posedge rst) begin
-        if(rst || mem_branchFlag || id_PCJmp) begin
+        if(rst || ex_branchFlag || id_PCJmp) begin
             ex_mem_regDst    <= '0; ex_mem_memCtrl   <= '0; ex_mem_wbCtrl   <= '0;
-            ex_mem_zeroFlag  <= '0; ex_mem_aluResult <= '0;
-            ex_mem_rdDataTwo <= '0; ex_mem_pcAdd     <= '0;
+            ex_mem_aluResult <= '0;
+            ex_mem_rdDataTwo <= '0;
         end else begin
             ex_mem_regDst    <= ex_regDst;    ex_mem_memCtrl   <= ex_memCtrl;
-            ex_mem_wbCtrl    <= ex_wbCtrl;    ex_mem_zeroFlag  <= ex_zeroFlag;
+            ex_mem_wbCtrl    <= ex_wbCtrl;
             ex_mem_aluResult <= ex_aluResult; ex_mem_rdDataTwo <= ex_rdDataTwo;
-            ex_mem_pcAdd     <= ex_pcAdd;
         end
     end
 
@@ -111,8 +109,8 @@ module top #(parameter WIDTH = 32, parameter MAX_INSTRUCTIONS) (
     if_stage #(.WIDTH(WIDTH), .MAX_INSTRUCTIONS(MAX_INSTRUCTIONS)) if_top (
         .clk(clk), .rst(rst),
         .instruction_memory(if_instruction_memory),
-        .PCSrc(mem_branchFlag),
-        .pc_br(mem_branchAddr),
+        .PCSrc(ex_branchFlag),
+        .pc_br(ex_branchAddr),
         .jump_addr(jump_addr),
         .pc_pp(if_pc_pp),
         .inst_mem_out(if_inst),
@@ -156,26 +154,23 @@ module top #(parameter WIDTH = 32, parameter MAX_INSTRUCTIONS) (
         .ex_mem_aluResult(ex_mem_aluResult), .wb_regData(wb_regData),
         .mem_ctrl_out(ex_memCtrl),
         .wb_ctrl_out(ex_wbCtrl),
-        .pc_slt_add(ex_pcAdd),
         .alu_result(ex_aluResult),
         .rd_data_two_out(ex_rdDataTwo),
         .zero_flag(ex_zeroFlag),
         .overflow_flag(ex_overflowFlag),
+        .branch_flag(ex_branchFlag),
+        .branch_addr(ex_branchAddr),
         .reg_dst_mux(ex_regDst),
         .shamt_out(id_ex_shamt_out)
     );
     mem_stage #(.WIDTH(WIDTH)) mem_top (
         .clk(clk), .rst(rst),
-        .zero_flag(ex_mem_zeroFlag),
         .mem_ctrl(ex_mem_memCtrl),
         .wb_ctrl_in(ex_mem_wbCtrl),
         .alu_result(ex_mem_aluResult),
         .rd_data_two_out(ex_mem_rdDataTwo),
-        .pc_slt_add(ex_mem_pcAdd),
         .reg_dst_mux(ex_mem_regDst),
-        .branch_flag(mem_branchFlag),
         .mem_read_data(mem_memReadData),
-        .branch_addr(mem_branchAddr),
         .alu_result_out(mem_aluResult),
         .wb_ctrl_out(mem_wbCtrl),
         .wr_reg_dest_out(mem_regDst)
